@@ -1,0 +1,292 @@
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (
+    QDialog,
+    QMainWindow,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .BlockWidget import BlockWidget
+from .Dialog import AddDialog
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("SSH Client")
+
+        self.setFixedSize(900, 900)
+
+        app_font = QFont("Segoe UI", 10)
+        self.setFont(app_font)
+
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #F5F7FA;
+            }
+
+            QPushButton#addButton {
+                background-color: #4A90E2;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 14px;
+                font-size: 16px;
+                font-weight: 600;
+                box-shadow: 0 2px 6px rgba(74, 144, 226, 0.3);
+            }
+
+            QPushButton#addButton:hover {
+                background-color: #3A7BC8;
+            }
+
+            QPushButton#addButton:pressed {
+                background-color: #2A6BB4;
+            }
+        """)
+
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+
+        main_layout = QVBoxLayout(self.central_widget)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(30, 30, 30, 30)
+
+        self.add_button = QPushButton("+ Add New SSH Connection")
+        self.add_button.setObjectName("addButton")
+        self.add_button.setMinimumHeight(50)
+        self.add_button.clicked.connect(self.show_add_dialog)
+        main_layout.addWidget(self.add_button)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+
+            QScrollBar:vertical {
+                background: #E8ECF1;
+                width: 10px;
+                border-radius: 5px;
+                margin: 0px;
+            }
+
+            QScrollBar::handle:vertical {
+                background: #A0AEC0;
+                border-radius: 5px;
+                min-height: 30px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background: #718096;
+            }
+
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+
+        self.scroll_content = QWidget()
+        self.scroll_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_layout.setSpacing(20)
+        self.scroll_layout.setAlignment(Qt.AlignTop)
+        self.scroll_layout.setContentsMargins(5, 5, 5, 5)
+
+        self.scroll_area.setWidget(self.scroll_content)
+        main_layout.addWidget(self.scroll_area)
+
+        self.setup_blocks()
+
+    def show_add_dialog(self):
+        dialog = AddDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            data = dialog.get_data()
+            dialog.save_data_on_os(data[0], data[1], data[2])
+            self.add_block(data)
+
+    def get_all_configs(self):
+        home = Path.home()
+        ssh_client_dir = home / ".ssh_client_data"
+        ssh_client_dir.mkdir(parents=True, exist_ok=True)
+        file_path = ssh_client_dir / "data.json"
+
+        if not file_path.exists() or file_path.stat().st_size == 0:
+            return []
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as file:
+                data = json.load(file)
+
+                return data
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Ошибка чтения конфигураций: {e}")
+            return []
+
+    def setup_blocks(self):
+        configs = self.get_all_configs()
+
+        if isinstance(configs, dict):
+            configs = [configs]
+
+        for config in configs:
+            data_list = [
+                config.get("title", ""),
+                config.get("address", ""),
+                config.get("password", ""),
+            ]
+            self.add_block(data_list)
+
+    def add_block(self, data):
+        block = BlockWidget(data)
+
+        block.delete_button.clicked.connect(lambda _, b=block: self.delete_block(b))
+        block.edit_button.clicked.connect(lambda _, b=block: self.edit_block(b))
+        block.run_button.clicked.connect(lambda _, b=block: self.run_block(b))
+
+        self.scroll_layout.addWidget(block)
+
+    def delete_block(self, block):
+        block.hide()
+        block.deleteLater()
+
+        home = Path.home()
+        ssh_client_dir = home / ".ssh_client_data"
+        file_path = ssh_client_dir / "data.json"
+
+        if not file_path.exists() or file_path.stat().st_size == 0:
+            return
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            try:
+                data_list = json.load(f)
+                if not isinstance(data_list, list):
+                    data_list = []
+            except json.JSONDecodeError:
+                data_list = []
+
+        target_title = block.data[0]
+
+        new_data_list = [
+            item for item in data_list if item.get("title", "") != target_title
+        ]
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(new_data_list, f, ensure_ascii=False, indent=4)
+
+    def edit_block(self, block):
+        dialog = AddDialog(self)
+
+        dialog.inputs[0].setText(block.data[0])
+        dialog.inputs[1].setText(block.data[1])
+        dialog.inputs[2].setText(block.data[2])
+
+        old_title = block.data[0]
+
+        if dialog.exec() == QDialog.Accepted:
+            new_data = dialog.get_data()
+
+            block.data = new_data
+            block.title_label.setText(new_data[0])
+
+            home = Path.home()
+            ssh_client_dir = home / ".ssh_client_data"
+            ssh_client_dir.mkdir(parents=True, exist_ok=True)
+            file_path = ssh_client_dir / "data.json"
+
+            if not file_path.exists() or file_path.stat().st_size == 0:
+                data_list = []
+            else:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    try:
+                        data_list = json.load(f)
+                        if not isinstance(data_list, list):
+                            data_list = []
+                    except json.JSONDecodeError:
+                        data_list = []
+
+            data_list = [
+                item for item in data_list if item.get("title", "") != old_title
+            ]
+
+            data_list.append(
+                {
+                    "title": new_data[0],
+                    "address": new_data[1],
+                    "password": new_data[2],
+                }
+            )
+
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data_list, f, ensure_ascii=False, indent=4)
+
+    def get_terminal(self):
+        terminals = [
+            "kitty",
+            "gnome-terminal",
+            "alacritty",
+            "konsole",
+            "xfce4-terminal",
+            "xterm",
+        ]
+        for term in terminals:
+            if shutil.which(term):
+                return term
+
+        return None
+
+    def run_block(self, block):
+        term_type = os.environ.get("TERM", "xterm")
+        print("Используется терминал:", term_type)
+        ssh_command = f"sshpass -p '{block.data[2]}' ssh {block.data[1]}"
+
+        if sys.platform.startswith("linux") or sys.platform.startswith("darwin"):
+            term = self.get_terminal()
+            if not term:
+                print(
+                    "Терминал не найден. Убедитесь, что установлен хотя бы один терминал."
+                )
+                return
+
+            if term == "gnome-terminal":
+                cmd = [term, "--", "bash", "-c", f"{ssh_command}; exec bash"]
+            elif term == "konsole":
+                cmd = [term, "-e", f"bash -c '{ssh_command}; exec bash'"]
+            elif term == "xfce4-terminal":
+                cmd = [term, "-e", f"bash -c '{ssh_command}; exec bash'"]
+            elif term in ("alacritty", "kitty", "xterm"):
+                cmd = [term, "-e", "bash", "-c", f"{ssh_command}; exec bash"]
+            else:
+                cmd = [term, "-e", "bash", "-c", f"{ssh_command}; exec bash"]
+
+            subprocess.Popen(cmd)
+
+        elif sys.platform.startswith("win"):
+            if shutil.which("wt.exe"):
+                subprocess.Popen(
+                    [
+                        "wt.exe",
+                        "-w",
+                        "0",
+                        "new-tab",
+                        "powershell",
+                        "-NoExit",
+                        "-Command",
+                        ssh_command,
+                    ]
+                )
+
+            else:
+                subprocess.Popen(["cmd.exe", "/k", ssh_command])
