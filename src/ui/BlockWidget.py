@@ -30,6 +30,9 @@ QLabel#title {
     font-size: 16px;
     font-weight: 600;
     color: #111111;
+    background-color:white
+                           
+                           
 }
 
 QPushButton {

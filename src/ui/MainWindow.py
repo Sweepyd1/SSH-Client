@@ -98,6 +98,8 @@ class MainWindow(QMainWindow):
         """)
 
         self.scroll_content = QWidget()
+        self.scroll_content.setStyleSheet("background:#EFEFEF")
+
         self.scroll_layout = QVBoxLayout(self.scroll_content)
         self.scroll_layout.setSpacing(20)
         self.scroll_layout.setAlignment(Qt.AlignTop)
@@ -288,26 +290,11 @@ class MainWindow(QMainWindow):
             subprocess.Popen(cmd)
 
         if sys.platform.startswith("win"):
-          
             putty_path = os.path.join("helpers", "putty.exe")
-            
+
             if ssh_key:
-            
-                ssh_command = [
-                    putty_path,
-                    "-ssh",
-                    address,
-                    "-i",
-                    ssh_key
-                ]
+                ssh_command = [putty_path, "-ssh", address, "-i", ssh_key]
             else:
-            
-                ssh_command = [
-                    putty_path,
-                    address,
-                    "-pw",
-                    password
-                ]
-            
-          
+                ssh_command = [putty_path, address, "-pw", password]
+
             subprocess.Popen(ssh_command)
