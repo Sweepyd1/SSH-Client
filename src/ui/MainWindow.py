@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from .BlockWidget import BlockWidget
 from .Dialog import AddDialog
+from .ErrorWindow import ErrorDialog
 
 
 class MainWindow(QMainWindow):
@@ -26,9 +27,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("SSH Client")
 
         self.setFixedSize(900, 900)
-
-        app_font = QFont("Segoe UI", 10)
-        self.setFont(app_font)
 
         self.setStyleSheet("""
             QMainWindow {
@@ -113,8 +111,12 @@ class MainWindow(QMainWindow):
     def show_add_dialog(self):
         dialog = AddDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            data = dialog.get_data()
-            dialog.save_data_on_os(data[0], data[1], data[2])
+            data = dialog.get_data(check_unique_title=True)
+
+            if data is None:
+                return
+
+            dialog.save_data_on_os(data[0], data[1], data[2], data[3])
             self.add_block(data)
 
     def get_all_configs(self):
@@ -146,6 +148,7 @@ class MainWindow(QMainWindow):
                 config.get("title", ""),
                 config.get("address", ""),
                 config.get("password", ""),
+                config.get("key_path", ""),
             ]
             self.add_block(data_list)
 
@@ -192,11 +195,12 @@ class MainWindow(QMainWindow):
         dialog.inputs[0].setText(block.data[0])
         dialog.inputs[1].setText(block.data[1])
         dialog.inputs[2].setText(block.data[2])
+        dialog.key_line_edit.setText(block.data[3])
 
         old_title = block.data[0]
 
         if dialog.exec() == QDialog.Accepted:
-            new_data = dialog.get_data()
+            new_data = dialog.get_data(check_unique_title=False)
 
             block.data = new_data
             block.title_label.setText(new_data[0])
@@ -226,6 +230,7 @@ class MainWindow(QMainWindow):
                     "title": new_data[0],
                     "address": new_data[1],
                     "password": new_data[2],
+                    "key_path": new_data[3],
                 }
             )
 
@@ -250,7 +255,16 @@ class MainWindow(QMainWindow):
     def run_block(self, block):
         term_type = os.environ.get("TERM", "xterm")
         print("Используется терминал:", term_type)
-        ssh_command = f"sshpass -p '{block.data[2]}' ssh {block.data[1]}"
+
+        address = block.data[1]
+        password = block.data[2]
+        ssh_key = block.data[3]
+
+        if ssh_key:
+            ssh_command = f"ssh -i {ssh_key} {address}"
+
+        else:
+            ssh_command = f"sshpass -p '{password}' ssh {address}"
 
         if sys.platform.startswith("linux") or sys.platform.startswith("darwin"):
             term = self.get_terminal()
@@ -287,6 +301,5 @@ class MainWindow(QMainWindow):
                         ssh_command,
                     ]
                 )
-
             else:
                 subprocess.Popen(["cmd.exe", "/k", ssh_command])
