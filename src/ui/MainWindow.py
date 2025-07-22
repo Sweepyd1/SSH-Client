@@ -287,19 +287,27 @@ class MainWindow(QMainWindow):
 
             subprocess.Popen(cmd)
 
-        elif sys.platform.startswith("win"):
-            if shutil.which("wt.exe"):
-                subprocess.Popen(
-                    [
-                        "wt.exe",
-                        "-w",
-                        "0",
-                        "new-tab",
-                        "powershell",
-                        "-NoExit",
-                        "-Command",
-                        ssh_command,
-                    ]
-                )
+        if sys.platform.startswith("win"):
+          
+            putty_path = os.path.join("helpers", "putty.exe")
+            
+            if ssh_key:
+            
+                ssh_command = [
+                    putty_path,
+                    "-ssh",
+                    address,
+                    "-i",
+                    ssh_key
+                ]
             else:
-                subprocess.Popen(["cmd.exe", "/k", ssh_command])
+            
+                ssh_command = [
+                    putty_path,
+                    address,
+                    "-pw",
+                    password
+                ]
+            
+          
+            subprocess.Popen(ssh_command)
