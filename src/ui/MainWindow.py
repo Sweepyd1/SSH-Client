@@ -255,46 +255,50 @@ class MainWindow(QMainWindow):
         return None
 
     def run_block(self, block):
-        term_type = os.environ.get("TERM", "xterm")
-        print("Используется терминал:", term_type)
-
         address = block.data[1]
         password = block.data[2]
         ssh_key = block.data[3]
 
-        if ssh_key:
-            ssh_command = f"ssh -i {ssh_key} {address}"
+        platform = sys.platform
 
-        else:
-            ssh_command = f"sshpass -p '{password}' ssh {address}"
+        if platform.startswith("linux"):
+            if ssh_key:
+                ssh_command = f"ssh -i {ssh_key} {address}"
+            else:
+                ssh_command = f"sshpass -p '{password}' ssh {address}"
 
-        if sys.platform.startswith("linux") or sys.platform.startswith("darwin"):
             term = self.get_terminal()
-            if not term:
-                print(
-                    "Терминал не найден. Убедитесь, что установлен хотя бы один терминал."
-                )
-                return
 
             if term == "gnome-terminal":
                 cmd = [term, "--", "bash", "-c", f"{ssh_command}; exec bash"]
-            elif term == "konsole":
-                cmd = [term, "-e", f"bash -c '{ssh_command}; exec bash'"]
-            elif term == "xfce4-terminal":
+            elif term in ("konsole", "xfce4-terminal"):
                 cmd = [term, "-e", f"bash -c '{ssh_command}; exec bash'"]
             elif term in ("alacritty", "kitty", "xterm"):
                 cmd = [term, "-e", "bash", "-c", f"{ssh_command}; exec bash"]
             else:
                 cmd = [term, "-e", "bash", "-c", f"{ssh_command}; exec bash"]
-
             subprocess.Popen(cmd)
 
-        if sys.platform.startswith("win"):
-            putty_path = os.path.join("helpers", "putty.exe")
+        else:
+            if platform.startswith("win"):
+                putty_path = os.path.join("helpers", "putty.exe")
 
-            if ssh_key:
-                ssh_command = [putty_path, "-ssh", address, "-i", ssh_key]
+                if ssh_key:
+                    ssh_command = [putty_path, "-ssh", address, "-i", ssh_key]
+                else:
+                    ssh_command = [putty_path, address, "-pw", password]
+
+                subprocess.Popen(ssh_command)
+
             else:
-                ssh_command = [putty_path, address, "-pw", password]
-
-            subprocess.Popen(ssh_command)
+                if platform == "darwin":
+                    if ssh_key:
+                        ssh_command = f'ssh -i "{ssh_key}" {address}'
+                    else:
+                        ssh_command = f"sshpass -p '{password}' ssh -o StrictHostKeyChecking=no {address}"
+                    escaped_ssh_command = ssh_command.replace('"', '\\"')
+                    applescript = f'tell application "Terminal" to do script "{escaped_ssh_command}"'
+                    try:
+                        subprocess.Popen(["osascript", "-e", applescript])
+                    except Exception as e:
+                        print(f"Ошибка при запуске osascript: {e}")
